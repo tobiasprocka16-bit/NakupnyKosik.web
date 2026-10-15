@@ -1,0 +1,191 @@
+<!doctype html>
+<html lang="sk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Obchod</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --card: #fff; --text: #1d2330; --muted: #6b7385;
+    --accent: #2f7d4f; --accent-d: #256640; --danger: #c0392b; --border: #e3e6ec;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #14171d; --card: #1d2129; --text: #e8eaf0; --muted: #98a0b3; --border: #2b303b; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: system-ui, -apple-system, "Segoe UI", sans-serif; background: var(--bg); color: var(--text); }
+  header { background: var(--card); border-bottom: 1px solid var(--border); padding: 14px 20px; display: flex; align-items: center; justify-content: space-between; }
+  header h1 { margin: 0; font-size: 1.25rem; }
+  header a { color: var(--muted); text-decoration: none; font-size: .9rem; }
+  header a:hover { color: var(--text); }
+  main { max-width: 1050px; margin: 0 auto; padding: 20px; display: grid; grid-template-columns: 1fr 340px; gap: 20px; align-items: start; }
+  @media (max-width: 800px) { main { grid-template-columns: 1fr; } }
+  h2 { margin: 0 0 12px; font-size: 1.05rem; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 12px; }
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 14px; display: flex; flex-direction: column; gap: 4px; }
+  .emoji { font-size: 2rem; }
+  .name { font-weight: 600; text-transform: capitalize; }
+  .meta { color: var(--muted); font-size: .85rem; }
+  .price { font-weight: 600; margin-top: 4px; }
+  .stock-low { color: var(--danger); }
+  button { font: inherit; cursor: pointer; border: 0; border-radius: 8px; padding: 8px 12px; background: var(--accent); color: #fff; }
+  button:hover:not(:disabled) { background: var(--accent-d); }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  button.ghost { background: transparent; color: var(--muted); border: 1px solid var(--border); }
+  button.ghost:hover:not(:disabled) { background: var(--bg); color: var(--text); }
+  .card button { margin-top: auto; }
+  aside { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 16px; position: sticky; top: 16px; }
+  .row { display: flex; justify-content: space-between; gap: 8px; padding: 8px 0; border-bottom: 1px solid var(--border); }
+  .row:last-of-type { border-bottom: 0; }
+  .empty { color: var(--muted); padding: 12px 0; }
+  .total { display: flex; justify-content: space-between; font-size: 1.15rem; font-weight: 700; margin: 12px 0; }
+  .badge { background: #e6f4ea; color: var(--accent-d); border-radius: 6px; padding: 2px 8px; font-size: .8rem; }
+  .actions { display: flex; gap: 8px; }
+  .actions button { flex: 1; }
+  #toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%) translateY(20px); background: #222; color: #fff; padding: 10px 16px; border-radius: 8px; opacity: 0; transition: .25s; pointer-events: none; max-width: 90vw; }
+  #toast.show { opacity: 1; transform: translateX(-50%); }
+  #toast.err { background: var(--danger); }
+  #modal { position: fixed; inset: 0; background: rgba(0,0,0,.5); display: none; align-items: center; justify-content: center; z-index: 10; }
+  #modal.show { display: flex; }
+  #modal form { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 20px; width: min(320px, 90vw); display: flex; flex-direction: column; gap: 10px; }
+  #modal h3 { margin: 0; }
+  #modal input { font: inherit; padding: 9px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg); color: var(--text); }
+  #modal input.bad { border-color: var(--danger); }
+  #modal .actions { margin-top: 4px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>🛒 Obchod</h1>
+</header>
+
+<main>
+  <section>
+    <h2>Produkty</h2>
+    <div id="produkty" class="grid"></div>
+  </section>
+
+  <aside>
+    <h2>Košík</h2>
+    <div id="kosik"></div>
+    <div class="total"><span>Spolu</span><span id="spolu">0.00 €</span></div>
+    <div class="actions">
+      <button id="btnZlava" onclick="zlava()">Uplatniť kupón −10 %</button>
+      <button class="ghost" onclick="resetuj()">Reset</button>
+    </div>
+  </aside>
+</main>
+
+<div id="modal">
+  <form onsubmit="skontrolujHeslo(event)">
+    <h3>🔒 Prístup do adminu</h3>
+    <input id="heslo" type="password" placeholder="Heslo" autocomplete="off">
+    <div class="actions">
+      <button type="submit">Vstúpiť</button>
+      <button type="button" class="ghost" onclick="zavriModal()">Zrušiť</button>
+    </div>
+  </form>
+</div>
+
+<div id="toast"></div>
+
+<script>
+const EMOJI = { ovocie: "🍎", zelenina: "🥕", sladkosti: "🍫" };
+const fmt = n => n.toFixed(2).replace(".", ",") + " €";
+const esc = s => String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+let toastTimer;
+function toast(msg, err = false) {
+  const t = document.getElementById("toast");
+  t.textContent = msg;
+  t.className = "show" + (err ? " err" : "");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => (t.className = ""), 2500);
+}
+
+async function api(url, method = "GET") {
+  const r = await fetch(url, { method });
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(data.detail || "Chyba servera");
+  return data;
+}
+
+async function nacitajSklad() {
+  const sklad = await api("/api/sklad");
+  document.getElementById("produkty").innerHTML = sklad.map(p => `
+    <div class="card">
+      <div class="emoji">${EMOJI[p.kategoria] || "📦"}</div>
+      <div class="name">${esc(p.nazov)}</div>
+      <div class="meta">${esc(p.kategoria)}</div>
+      <div class="price">${fmt(p.cena)}</div>
+      <div class="meta ${p.kusy < 5 ? "stock-low" : ""}">${p.kusy > 0 ? "Na sklade: " + p.kusy + " ks" : "Vypredané"}</div>
+      <button ${p.kusy <= 0 ? "disabled" : ""} onclick="pridaj('${esc(p.nazov)}')">Do košíka</button>
+    </div>`).join("");
+}
+
+function vykresliKosik(k) {
+  const el = document.getElementById("kosik");
+  el.innerHTML = k.polozky.length
+    ? k.polozky.map(p => `
+        <div class="row">
+          <span><span class="name">${esc(p.nazov)}</span> × ${p.pocet}</span>
+          <span>${fmt(p.cena * p.pocet)}</span>
+        </div>`).join("") + (k.zlava ? `<div class="row"><span>Zľava</span><span class="badge">−10 %</span></div>` : "")
+    : `<div class="empty">Košík je prázdny.</div>`;
+  document.getElementById("spolu").textContent = fmt(k.celkova_cena);
+  document.getElementById("btnZlava").disabled = k.zlava || !k.polozky.length;
+}
+
+async function nacitajKosik() { vykresliKosik(await api("/api/kosik")); }
+
+async function akcia(url, method = "POST") {
+  try {
+    const d = await api(url, method);
+    toast(d.sprava || "Hotovo");
+    if (d.polozky) vykresliKosik(d);
+  } catch (e) {
+    toast(e.message, true);
+  }
+  await nacitajSklad();
+}
+
+const pridaj = n => akcia("/api/kosik/" + encodeURIComponent(n));
+const zlava = () => akcia("/api/zlava");
+const resetuj = () => akcia("/api/reset");
+
+const modal = document.getElementById("modal");
+const heslo = document.getElementById("heslo");
+
+function otvorModal() {
+  heslo.value = "";
+  heslo.classList.remove("bad");
+  modal.classList.add("show");
+  heslo.focus();
+}
+function zavriModal() { modal.classList.remove("show"); }
+
+function skontrolujHeslo(ev) {
+  ev.preventDefault();
+  if (heslo.value.trim() === "trubicky") {
+    location.href = "/admin";
+  } else {
+    heslo.classList.add("bad");
+    heslo.select();
+    toast("Nesprávne heslo", true);
+  }
+}
+
+document.addEventListener("keydown", e => {
+  if (e.key === "F1") {
+    e.preventDefault();           // zabráni otvoreniu pomocníka prehliadača
+    otvorModal();
+  } else if (e.key === "Escape") {
+    zavriModal();
+  }
+});
+
+nacitajSklad();
+nacitajKosik();
+</script>
+</body>
+</html>
